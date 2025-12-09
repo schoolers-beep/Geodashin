@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GeoDash Accurate Physics</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@900&display=swap');
+
+        :root {
+            --bg-grad-start: #202040;
+            --bg-grad-end: #000000;
+            --neon-blue: #00f3ff;
+            --neon-green: #00ff00;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Roboto', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hud-bar {
+            width: 100%;
+            height: 12px;
+            background: rgba(0,0,0,0.5);
+            border-bottom: 2px solid white;
+        }
+        .hud-progress {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #00ff00, #aaff00);
+            box-shadow: 0 0 10px #00ff00;
+        }
+
+        .screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
+            z-index: 99;
+        }
+        .hidden { display: none !important; }
+
+        h1 {
+            color: white;
+            font-size: 4rem;
+            text-shadow: 4px 4px 0 #000, 0 0 20px var(--neon-blue);
+            font-style: italic;
+            margin-bottom: 10px;
+            transform: skewX(-10deg);
+        }
+
+        .btn-row { display: flex; gap: 20px; margin-top: 30px; }
+
+        button {
+            width: 100px; height: 100px;
+            background: rgba(0,0,0,0.5);
+            border: 3px solid white;
+            border-radius: 15px;
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 5px 0 #000;
+        }
+        button:active { transform: scale(0.95) translateY(5px); box-shadow: 0 0 0 #000; }
+        button:hover { background: rgba(255,255,255,0.1); }
+        .play-btn { border-color: #00ff00; color: #00ff00; text-shadow: 0 0 10px #00ff00; }
+        .edit-btn { border-color: #00f3ff; color: #00f3ff; text-shadow: 0 0 10px #00f3ff; }
+
+        /* EDITOR */
+        #editor-ui {
+            width: 80%; height: 70%;
+            background: #1a1a1a;
+            border: 2px solid #555;
+            padding: 10px;
+            display: flex; flex-direction: column;
+        }
+        textarea {
+            flex: 1; background: #000; color: #0f0;
+            font-family: monospace; border: none; padding: 10px; resize: none;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui-layer">
+    <div class="hud-bar"><div class="hud-progress" id="progress-bar"></div></div>
+</div>
+
+<div id="start-screen" class="screen">
+    <h1>GEODASH JS</h1>
+    <p style="color:#aaa; font-family:monospace;">PHYSICS UPDATE: 60Hz FIXED STEP</p>
+    <div class="btn-row">
+        <button class="play-btn" id="btn-play">▶</button>
+        <button class="edit-btn" id="btn-editor">✎</button>
+    </div>
+</div>
+
+<div id="death-screen" class="screen hidden">
+    <h1 style="color:#ff3333; text-shadow: 0 0 20px red;">CRASH</h1>
+    <div class="btn-row">
+        <button class="play-btn" id="btn-retry">↻</button>
+        <button class="edit-btn" id="btn-menu">≡</button>
+    </div>
+</div>
+
+<div id="editor-screen" class="screen hidden">
+    <div id="editor-ui">
+        <div style="color:white; margin-bottom:10px; font-weight:bold;">LEVEL JSON</div>
+        <textarea id="level-json"></textarea>
+        <div class="btn-row" style="margin-top:10px; justify-content: flex-end;">
+            <button class="play-btn" id="btn-load" style="width:auto; height:50px; font-size:1.2rem; padding:0 20px;">LOAD</button>
+            <button class="edit-btn" id="btn-close-edit" style="width:auto; height:50px; font-size:1.2rem; padding:0 20px;">EXIT</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * GEOMETRY DASH ACCURATE PHYSICS CONSTANTS
+ * Scaled relative to a 64px Tile size.
+ * * GD Internal Units:
+ * 1 block = 30 units.
+ * Gravity = 0.9 units/frame^2 (at 60fps).
+ * Jump = 17 units/frame.
+ * Speed = ~10.4 units/frame.
+ * * We scale this up to our 64px tile size (Ratio ~2.133)
+ */
+const CONFIG = {
+    TILE_SIZE: 64,
+    
+    // PHYSICS
+    // To feel "snappy", gravity must be very high and jump instant.
+    GRAVITY: 3900,         // px/sec^2 (Very heavy fall)
+    JUMP_FORCE: 1150,      // px/sec (Immediate impulse)
+    MOVE_SPEED: 620,       // px/sec (Constant horizontal speed)
+    TERMINAL_VELOCITY: 2000,
+    
+    // HITBOXES (The "Forgiveness" Factor)
+    // Visual size is 64px, but physics box is smaller to allow corner clipping
+    PLAYER_HITBOX_SIZE: 36, 
+    PLAYER_VISUAL_SIZE: 50,
+    
+    // TIMING
+    PHYSICS_STEP: 1/120,    // Run physics at 120hz for precision
+    INPUT_BUFFER: 0.15,     // Seconds to remember jump press before landing
+    
+    // VISUALS
+    FLOOR_HEIGHT: 150,
+    COLORS: {
+        player: '#ffcc00',
+        player2: '#00ffcc',
+        spike: '#444',
+        pad: '#ff00ff',
+        orb: '#ffff00',
+        ground: '#202060'
+    }
+};
+
+/* --- AUDIO SYSTEM (WebAudio) --- */
+const AudioSys = {
+    ctx: null,
+    init() {
+        if(!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if(this.ctx.state === 'suspended') this.ctx.resume();
+    },
+    playTone(freq, type, dur, vol=0.5, slide=0) {
+        if(!this.ctx) return;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        if(slide) o.frequency.linearRampToValueAtTime(freq+slide, this.ctx.currentTime+dur);
+        g.gain.setValueAtTime(vol, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + dur);
+        o.connect(g); g.connect(this.ctx.destination);
+        o.start(); o.stop(this.ctx.currentTime + dur);
+    },
+    sfxJump() { this.playTone(400, 'square', 0.1, 0.2); },
+    sfxDie() { this.playTone(150, 'sawtooth', 0.5, 0.6, -100); },
+    sfxOrb() { this.playTone(800, 'sine', 0.2, 0.4, 200); },
+    sfxPad() { this.playTone(600, 'square', 0.15, 0.3, 200); }
+};
+
+/* --- RENDERER (Canvas) --- */
+const Renderer = {
+    drawPlayer(ctx, x, y, angle) {
+        const size = CONFIG.PLAYER_VISUAL_SIZE;
+        ctx.save();
+        ctx.translate(x, y); // x,y is center of player in this engine
+        ctx.rotate(angle);
+        
+        // Glow
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = CONFIG.COLORS.player;
+        
+        // Body (Gradient)
+        const grad = ctx.createLinearGradient(-size/2, -size/2, size/2, size/2);
+        grad.addColorStop(0, CONFIG.COLORS.player);
+        grad.addColorStop(1, '#ffaa00');
+        ctx.fillStyle = grad;
+        ctx.fillRect(-size/2, -size/2, size, size);
+        
+        // Border
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#000';
+        ctx.strokeRect(-size/2, -size/2, size, size);
+        
+        // Face
+        ctx.fillStyle = '#000';
+        const eyeSize = size * 0.2;
+        ctx.fillRect(-size*0.25, -size*0.2, eyeSize, eyeSize); // L
+        ctx.fillRect(size*0.05, -size*0.2, eyeSize, eyeSize);  // R
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-size*0.2, size*0.2);
+        ctx.lineTo(size*0.25, size*0.2);
+        ctx.stroke();
+        
+        // Inner detail
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-size/2 + 6, -size/2 + 6, size-12, size-12);
+        
+        ctx.restore();
+        
+        // Debug Hitbox
+        // ctx.strokeStyle = 'red'; ctx.strokeRect(x - CONFIG.PLAYER_HITBOX_SIZE/2, y - CONFIG.PLAYER_HITBOX_SIZE/2, CONFIG.PLAYER_HITBOX_SIZE, CONFIG.PLAYER_HITBOX_SIZE);
+    },
+
+    drawSpike(ctx, x, y, w, h) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Metallic Gradient
+        const grad = ctx.createLinearGradient(0, h, 0, 0);
+        grad.addColorStop(0, '#222');
+        grad.addColorStop(0.5, '#666');
+        grad.addColorStop(1, '#eee');
+        
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        ctx.lineTo(w/2, 0);
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        // Core curve
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w/2, h);
+        ctx.quadraticCurveTo(w/2, h/2, w/2, h/4);
+        ctx.stroke();
+        
+        ctx.restore();
+    },
+
+    drawBlock(ctx, x, y, s) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, s, s);
+        
+        // Neon Border
+        ctx.strokeStyle = CONFIG.COLORS.player2;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = CONFIG.COLORS.player2;
+        ctx.shadowBlur = 10;
+        ctx.strokeRect(0, 0, s, s);
+        
+        // Inner design
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(0,255,255,0.1)';
+        ctx.fillRect(8, 8, s-16, s-16);
+        ctx.strokeRect(8, 8, s-16, s-16);
+        
+        ctx.restore();
+    },
+    
+    drawPad(ctx, x, y, w, h) {
+        ctx.fillStyle = CONFIG.COLORS.pad;
+        ctx.shadowColor = CONFIG.COLORS.pad;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(x + w/2, y + h, w/2.5, Math.PI, 0);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    },
+    
+    drawOrb(ctx, x, y, r) {
+        ctx.shadowColor = CONFIG.COLORS.orb;
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = CONFIG.COLORS.orb;
+        ctx.beginPath();
+        ctx.arc(x + r, y + r, r*0.6, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Ring
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x + r, y + r, r*0.8, 0, Math.PI*2);
+        ctx.stroke();
+    },
+    
+    drawBackground(ctx, w, h, camX) {
+        // Clear
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, '#1a1a3a');
+        grad.addColorStop(1, '#000');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0,0,w,h);
+        
+        // Parallax Grid
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 2;
+        const gridSize = 100;
+        const offX = -(camX * 0.2) % gridSize;
+        const floorY = h - CONFIG.FLOOR_HEIGHT;
+        
+        ctx.beginPath();
+        for(let i=offX; i<w; i+=gridSize) {
+            ctx.moveTo(i, 0); ctx.lineTo(i, h);
+        }
+        for(let i=0; i<h; i+=gridSize) {
+            ctx.moveTo(0, i); ctx.lineTo(w, i);
+        }
+        ctx.stroke();
+        
+        // Floor
+        ctx.fillStyle = CONFIG.COLORS.ground;
+        ctx.fillRect(0, floorY, w, CONFIG.FLOOR_HEIGHT);
+        
+        // Floor Line
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 4;
+        ctx.shadowColor = 'white';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(0, floorY);
+        ctx.lineTo(w, floorY);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+};
+
+/* --- ENGINE --- */
+const Game = {
+    canvas: null,
+    ctx: null,
+    
+    // State
+    running: false,
+    dead: false,
+    accumulator: 0,
+    lastTime: 0,
+    
+    // Entities
+    player: {
+        x: 0, y: 0, 
+        vx: 0, vy: 0,
+        angle: 0,
+        grounded: false,
+        bufferTimer: 0
+    },
+    cameraX: 0,
+    level: null,
+    particles: [],
+    
+    // Input
+    keys: { hold: false, tap: false },
+
+    init() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d', {alpha: false}); // Optimize
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        
+        // Input Listeners
+        const onDown = () => { if(this.running) { this.keys.hold = true; this.keys.tap = true; }};
+        const onUp = () => { this.keys.hold = false; };
+        
+        window.addEventListener('keydown', e => { if(e.code==='Space'||e.code==='ArrowUp') onDown(); });
+        window.addEventListener('keyup', e => { if(e.code==='Space'||e.code==='ArrowUp') onUp(); });
+        window.addEventListener('mousedown', e => { if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'TEXTAREA') onDown(); });
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchstart', e => { if(e.target.tagName !== 'BUTTON') { e.preventDefault(); onDown(); } }, {passive:false});
+        window.addEventListener('touchend', onUp);
+
+        // UI Handlers
+        document.getElementById('btn-play').onclick = () => this.start();
+        document.getElementById('btn-retry').onclick = () => this.start();
+        document.getElementById('btn-menu').onclick = () => this.toMenu();
+        document.getElementById('btn-editor').onclick = () => {
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('editor-screen').classList.remove('hidden');
+        };
+        document.getElementById('btn-load').onclick = () => {
+            try {
+                const json = JSON.parse(document.getElementById('level-json').value);
+                this.loadLevel(json);
+                this.start();
+            } catch(e) { alert("Invalid JSON"); }
+        };
+        document.getElementById('btn-close-edit').onclick = () => this.toMenu();
+
+        // Load Default
+        document.getElementById('level-json').value = JSON.stringify(DEFAULT_LEVEL, null, 2);
+        this.loadLevel(DEFAULT_LEVEL);
+        
+        // Loop
+        requestAnimationFrame(t => this.loop(t));
+    },
+
+    resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    },
+    
+    toMenu() {
+        document.getElementById('death-screen').classList.add('hidden');
+        document.getElementById('editor-screen').classList.add('hidden');
+        document.getElementById('start-screen').classList.remove('hidden');
+        this.running = false;
+    },
+
+    loadLevel(data) {
+        const ts = CONFIG.TILE_SIZE;
+        // Convert grid coords to pixel coords
+        // In Physics: Y=0 is ground, Positive Y is UP
+        this.level = {
+            length: data.length * ts,
+            objects: data.objects.map(o => ({
+                type: o.type,
+                x: o.x * ts,
+                y: o.y * ts, // o.y=0 is just above floor
+                w: ts,
+                h: ts,
+                hit: false
+            })).sort((a,b) => a.x - b.x)
+        };
+    },
+
+    start() {
+        AudioSys.init();
+        document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+        
+        this.running = true;
+        this.dead = false;
+        this.accumulator = 0;
+        this.lastTime = performance.now();
+        
+        // Reset Player
+        this.player.x = 0;
+        this.player.y = 0;
+        this.player.vx = CONFIG.MOVE_SPEED;
+        this.player.vy = 0;
+        this.player.angle = 0;
+        this.player.grounded = true;
+        this.player.bufferTimer = 0;
+        
+        this.particles = [];
+        this.keys.hold = false;
+    },
+
+    loop(timestamp) {
+        if(!this.running) {
+            // Idle render
+            if(!this.dead && this.level) {
+                // optional idle bg animation
+            }
+             requestAnimationFrame(t => this.loop(t));
+             return;
+        }
+
+        let dt = (timestamp - this.lastTime) / 1000;
+        this.lastTime = timestamp;
+        
+        // Prevent spiral of death on lag
+        if(dt > 0.1) dt = 0.1;
+
+        this.accumulator += dt;
+
+        // FIXED TIMESTEP UPDATE (Crucial for consistent jumps)
+        while(this.accumulator >= CONFIG.PHYSICS_STEP) {
+            if(!this.dead) this.updatePhysics(CONFIG.PHYSICS_STEP);
+            this.accumulator -= CONFIG.PHYSICS_STEP;
+        }
+
+        // Render Interpolation (Optional, skipping for simplicity, rendering at state)
+        this.render();
+        requestAnimationFrame(t => this.loop(t));
+    },
+
+    updatePhysics(dt) {
+        const p = this.player;
+
+        // 1. Inputs & Buffering
+        if(this.keys.tap) {
+            p.bufferTimer = CONFIG.INPUT_BUFFER;
+            this.keys.tap = false;
+        }
+        if(p.bufferTimer > 0) p.bufferTimer -= dt;
+
+        // 2. Gravity
+        p.vy -= CONFIG.GRAVITY * dt;
+        // Terminal velocity
+        if(p.vy < -CONFIG.TERMINAL_VELOCITY) p.vy = -CONFIG.TERMINAL_VELOCITY;
+
+        // 3. Horizontal
+        p.x += p.vx * dt;
+
+        // 4. Vertical Integration
+        p.y += p.vy * dt;
+
+        // 5. Ground Floor Check
+        if(p.y <= 0) {
+            p.y = 0;
+            p.vy = 0;
+            p.grounded = true;
+            // Snap angle to nearest 90
+            const nearest = Math.round(p.angle / (Math.PI/2)) * (Math.PI/2);
+            p.angle += (nearest - p.angle) * 0.25; 
+        } else {
+            p.grounded = false;
+            // Rotate visual
+            p.angle -= 6.5 * dt; // Approx 360 per jump
+        }
+
+        // 6. Jump Execution
+        if(p.grounded && p.bufferTimer > 0) {
+            p.vy = CONFIG.JUMP_FORCE;
+            p.grounded = false;
+            p.bufferTimer = 0;
+            AudioSys.sfxJump();
+            this.spawnParticles(p.x, p.y, 10);
+        }
+
+        // 7. Collision Detection
+        this.checkCollisions();
+
+        // 8. Progress
+        const pct = Math.min(100, (p.x / this.level.length)*100);
+        document.getElementById('progress-bar').style.width = pct + '%';
+        if(p.x > this.level.length) {
+            this.dead = true; // Technically win, but stop for now
+            setTimeout(() => { alert("Level Complete!"); this.toMenu(); }, 100);
+        }
+    },
+
+    checkCollisions() {
+        const p = this.player;
+        const hitboxSize = CONFIG.PLAYER_HITBOX_SIZE;
+        const half = hitboxSize / 2;
+        
+        // Player AABB (Axis Aligned Bounding Box) - Centered on p.x, p.y
+        const pL = p.x - half;
+        const pR = p.x + half;
+        const pB = p.y;          // Bottom
+        const pT = p.y + hitboxSize; // Top
+        
+        // Optimize: search range
+        const viewX = p.x;
+        
+        for(let obj of this.level.objects) {
+            // Simple culling
+            if(obj.x + obj.w < pL - 100 || obj.x > pR + 100) continue;
+
+            // Hitbox definitions
+            let hit = false;
+            
+            if(obj.type === 'spike') {
+                // Detailed Triangle Hitbox
+                // Shrink hitbox to be "fair" (Spikes in GD have small hitboxes)
+                const sL = obj.x + obj.w * 0.3; 
+                const sR = obj.x + obj.w * 0.7;
+                const sT = obj.y + obj.h * 0.6; 
+                const sB = obj.y;
+
+                if (pR > sL && pL < sR && pB < sT && pT > sB) {
+                    this.die();
+                }
+            } 
+            else if (obj.type === 'block') {
+                // Block collisions are tricky. We need to know which side we hit.
+                // Standard AABB overlap
+                if (pR > obj.x && pL < obj.x + obj.w && pT > obj.y && pB < obj.y + obj.h) {
+                    this.resolveBlock(obj, p, pL, pR, pB, pT);
+                }
+            }
+            else if (obj.type === 'pad') {
+                const padL = obj.x + 10;
+                const padR = obj.x + obj.w - 10;
+                const padT = obj.y + 20;
+                if(pR > padL && pL < padR && pB < padT) {
+                    p.vy = CONFIG.JUMP_FORCE * 1.4;
+                    p.grounded = false;
+                    AudioSys.sfxPad();
+                }
+            }
+            else if (obj.type === 'orb') {
+                const cx = obj.x + obj.w/2;
+                const cy = obj.y + obj.h/2;
+                const dist = Math.sqrt((p.x - cx)**2 + (p.y + CONFIG.PLAYER_HITBOX_SIZE/2 - cy)**2);
+                
+                // If input held and inside orb
+                if(this.keys.hold && dist < 40 && !obj.hit) {
+                    p.vy = CONFIG.JUMP_FORCE;
+                    p.grounded = false;
+                    obj.hit = true; // prevent multi-trigger
+                    setTimeout(()=>obj.hit=false, 200);
+                    AudioSys.sfxOrb();
+                    this.keys.hold = false; // consume input
+                }
+            }
+        }
+    },
+
+    resolveBlock(obj, p, pL, pR, pB, pT) {
+        // Find penetration depths
+        const overlapL = pR - obj.x;
+        const overlapR = (obj.x + obj.w) - pL;
+        const overlapT = (obj.y + obj.h) - pB; // Landing
+        const overlapB = pT - obj.y;           // Ceiling
+
+        // Find smallest overlap to determine collision normal
+        const minX = Math.min(overlapL, overlapR);
+        const minY = Math.min(overlapT, overlapB);
+
+        if (minY < minX) {
+            // Vertical Collision
+            if (overlapT < overlapB) {
+                // Landed on top
+                if(p.vy <= 0) { // Only if falling
+                    p.y = obj.y + obj.h;
+                    p.vy = 0;
+                    p.grounded = true;
+                    // Snap rotation
+                    const nearest = Math.round(p.angle / (Math.PI/2)) * (Math.PI/2);
+                    p.angle = nearest;
+                }
+            } else {
+                // Hit head
+                p.y = obj.y - CONFIG.PLAYER_HITBOX_SIZE;
+                p.vy = 0;
+            }
+        } else {
+            // Horizontal Collision -> Death
+            // Allow a tiny bit of "clipping" tolerance (4px)
+            if(minX > 6) {
+                this.die();
+            }
+        }
+    },
+
+    die() {
+        if(this.dead) return;
+        this.dead = true;
+        AudioSys.sfxDie();
+        // Explosion
+        for(let i=0; i<30; i++) this.spawnParticles(this.player.x, this.player.y, 20);
+        
+        setTimeout(() => {
+            document.getElementById('death-screen').classList.remove('hidden');
+        }, 600);
+    },
+
+    spawnParticles(x, y, count) {
+        for(let i=0; i<count; i++) {
+            this.particles.push({
+                x: x, y: y,
+                vx: (Math.random()-0.5)*600,
+                vy: (Math.random()-0.5)*600,
+                life: 1.0,
+                color: CONFIG.COLORS.player
+            });
+        }
+    },
+
+    render() {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const ctx = this.ctx;
+        
+        // Calc Camera: Player at 25% width
+        this.cameraX = this.player.x - w * 0.25;
+        const floorY = h - CONFIG.FLOOR_HEIGHT;
+
+        // Background
+        Renderer.drawBackground(ctx, w, h, this.cameraX);
+
+        ctx.save();
+        
+        // Objects
+        const startX = this.cameraX - 100;
+        const endX = this.cameraX + w + 100;
+        
+        for(let obj of this.level.objects) {
+            if(obj.x < startX || obj.x > endX) continue;
+            
+            const scrX = obj.x - this.cameraX;
+            // Convert Physics Y (Up) to Screen Y (Down)
+            // Physics Y=0 is at floorY. Object Y is bottom-left.
+            const scrY = floorY - obj.y - obj.h; 
+            
+            if(obj.type === 'block') Renderer.drawBlock(ctx, scrX, scrY, obj.w);
+            else if(obj.type === 'spike') Renderer.drawSpike(ctx, scrX, scrY, obj.w, obj.h);
+            else if(obj.type === 'pad') Renderer.drawPad(ctx, scrX, scrY, obj.w, obj.h);
+            else if(obj.type === 'orb') Renderer.drawOrb(ctx, scrX, scrY, obj.w/2);
+        }
+
+        // Particles
+        for(let i=this.particles.length-1; i>=0; i--) {
+            let p = this.particles[i];
+            p.x += p.vx * 0.016;
+            p.y += p.vy * 0.016;
+            p.life -= 0.05;
+            if(p.life <= 0) { this.particles.splice(i,1); continue; }
+            
+            const px = p.x - this.cameraX;
+            const py = floorY - p.y;
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(px, py, 6, 6);
+            ctx.globalAlpha = 1;
+        }
+
+        // Player
+        if(!this.dead) {
+            const p = this.player;
+            const scrX = p.x - this.cameraX;
+            const scrY = floorY - p.y - CONFIG.PLAYER_VISUAL_SIZE/2; // Center anchor adjustment
+            Renderer.drawPlayer(ctx, scrX, scrY, -p.angle); // Visual angle inverted for canvas rotation
+        }
+
+        ctx.restore();
+    }
+};
+
+/* --- LEVEL DATA --- */
+const DEFAULT_LEVEL = {
+    "length": 400,
+    "objects": [
+        // Intro
+        {"x": 10, "y": 0, "type": "spike"},
+        {"x": 11, "y": 0, "type": "spike"},
+        
+        // Stereo Madness Style Triple? (No, too hard, make it double)
+        {"x": 20, "y": 0, "type": "spike"},
+        {"x": 21, "y": 0, "type": "spike"},
+        
+        // Blocks
+        {"x": 30, "y": 0, "type": "block"},
+        {"x": 31, "y": 1, "type": "block"},
+        {"x": 32, "y": 2, "type": "block"},
+        {"x": 35, "y": 2, "type": "spike"}, // Spike on top?
+        
+        // Pad Jump
+        {"x": 40, "y": 0, "type": "pad"},
+        {"x": 48, "y": 4, "type": "block"},
+        
+        // Orb Section
+        {"x": 55, "y": 0, "type": "spike"},
+        {"x": 56, "y": 0, "type": "spike"},
+        {"x": 57, "y": 0, "type": "spike"},
+        {"x": 56, "y": 3, "type": "orb"},
+        
+        // Platforming
+        {"x": 65, "y": 1, "type": "block"},
+        {"x": 67, "y": 2, "type": "block"},
+        {"x": 69, "y": 3, "type": "block"},
+        {"x": 71, "y": 3, "type": "spike"},
+        
+        {"x": 80, "y": 0, "type": "block"},
+        {"x": 80, "y": 1, "type": "block"}
+    ]
+};
+
+// Boot
+window.onload = () => Game.init();
+
+</script>
+</body>
+</html>
