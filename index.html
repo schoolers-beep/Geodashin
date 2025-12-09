@@ -264,9 +264,9 @@ const CONFIG = {
     WAVE_ANGLE_UP: Math.PI / 4, // 45 degrees
     WAVE_ANGLE_DOWN: -Math.PI / 4,
     
-    // Flying mode boundaries
-    FLYING_TOP_MARGIN: 20,
-    FLYING_BOTTOM_MARGIN: 80,
+    // Flying mode boundaries (adjusted for proper height)
+    FLYING_TOP_MARGIN: 80,
+    FLYING_BOTTOM_MARGIN: 40,
     
     // Hitboxes (Forgiveness factor: Hitbox is smaller than visual)
     HITBOX_SCALE: 0.7,  // Slightly more forgiving
@@ -283,62 +283,124 @@ const LEVELS = [
         name: "STEREO MADNESS",
         difficulty: "Easy",
         stars: 1,
-        length: 280, // in blocks
+        length: 350, // Extended for full level
         color: "#2980b9",
-        data: [ // x, y (0 is ground), type: s=spike, b=block, o=orb, p=pad, sp=ship_portal, cp=cube_portal, e=end
-            // Opening sequence
-            {x:10,y:0,t:'s'},{x:11,y:0,t:'s'}, 
+        data: [ // Recreating actual Stereo Madness layout
+            // Opening - just spikes
+            {x:8,y:0,t:'s'},{x:9,y:0,t:'s'},
             
-            // First jump section
-            {x:18,y:0,t:'b'},{x:19,y:1,t:'b'},{x:20,y:2,t:'b'}, 
-            {x:25,y:0,t:'s'},{x:26,y:0,t:'s'},
-            {x:32,y:0,t:'b'},{x:32,y:1,t:'s'},
+            // First platform section (0-15%)
+            {x:14,y:0,t:'b'},{x:15,y:0,t:'b'},{x:16,y:0,t:'b'},
+            {x:17,y:0,t:'s'},{x:18,y:0,t:'s'},
+            {x:20,y:0,t:'b'},{x:21,y:1,t:'b'},{x:22,y:2,t:'b'},
+            {x:24,y:0,t:'s'},{x:25,y:0,t:'s'},
             
-            // Pad jump
-            {x:38,y:0,t:'p'}, 
-            {x:46,y:4,t:'b'},{x:47,y:4,t:'b'},{x:48,y:4,t:'b'},
+            // Staircase section
+            {x:30,y:0,t:'b'},{x:31,y:0,t:'b'},
+            {x:32,y:1,t:'b'},{x:33,y:1,t:'b'},
+            {x:34,y:2,t:'b'},{x:35,y:2,t:'b'},
+            {x:38,y:0,t:'s'},{x:39,y:0,t:'s'},{x:40,y:0,t:'s'},
             
-            // Orb section
-            {x:55,y:0,t:'s'},{x:56,y:0,t:'s'},{x:57,y:0,t:'s'}, 
-            {x:65,y:0,t:'b'},{x:65,y:1,t:'o'},
-            {x:75,y:2,t:'b'},{x:76,y:2,t:'b'},{x:77,y:3,t:'b'},
-            {x:80,y:0,t:'s'},{x:81,y:0,t:'s'},
+            // Platform with spike on top
+            {x:45,y:0,t:'b'},{x:46,y:0,t:'b'},{x:47,y:0,t:'b'},
+            {x:46,y:1,t:'s'},
             
-            // More platforms
-            {x:90,y:1,t:'b'},{x:91,y:1,t:'b'},{x:92,y:2,t:'b'},
-            {x:95,y:0,t:'p'},
-            {x:102,y:5,t:'b'},{x:103,y:5,t:'b'},{x:104,y:5,t:'b'},
-            {x:110,y:0,t:'s'},{x:111,y:0,t:'s'},{x:112,y:0,t:'s'},
+            // Jump gap
+            {x:52,y:0,t:'s'},{x:53,y:0,t:'s'},
             
-            // Ship section portal
-            {x:125,y:0,t:'sp'},
+            // Pad jump section
+            {x:58,y:0,t:'p'},
+            {x:64,y:4,t:'b'},{x:65,y:4,t:'b'},{x:66,y:4,t:'b'},{x:67,y:4,t:'b'},
+            {x:65,y:5,t:'s'},{x:66,y:5,t:'s'},
             
-            // Ship obstacles (platforms in air)
-            {x:135,y:3,t:'b'},{x:136,y:3,t:'b'},{x:137,y:3,t:'b'},
-            {x:135,y:6,t:'b'},{x:136,y:6,t:'b'},{x:137,y:6,t:'b'},
-            {x:145,y:2,t:'b'},{x:146,y:2,t:'b'},
-            {x:145,y:7,t:'b'},{x:146,y:7,t:'b'},
-            {x:155,y:4,t:'b'},{x:156,y:4,t:'b'},{x:157,y:4,t:'b'},
-            {x:165,y:2,t:'b'},{x:166,y:2,t:'b'},
-            {x:165,y:6,t:'b'},{x:166,y:6,t:'b'},
-            {x:175,y:1,t:'b'},{x:176,y:1,t:'b'},{x:177,y:1,t:'b'},
-            {x:175,y:8,t:'b'},{x:176,y:8,t:'b'},{x:177,y:8,t:'b'},
+            // Drop down section
+            {x:72,y:0,t:'b'},{x:73,y:0,t:'b'},{x:74,y:0,t:'b'},
+            {x:76,y:0,t:'s'},{x:77,y:0,t:'s'},{x:78,y:0,t:'s'},
             
-            // Back to cube
-            {x:190,y:0,t:'cp'},
+            // Orb section (15-30%)
+            {x:83,y:0,t:'b'},{x:84,y:1,t:'b'},{x:85,y:1,t:'o'},
+            {x:90,y:3,t:'b'},{x:91,y:3,t:'b'},{x:92,y:3,t:'b'},
+            {x:96,y:0,t:'s'},{x:97,y:0,t:'s'},
             
-            // Final cube section
-            {x:200,y:0,t:'s'},{x:201,y:0,t:'s'},
-            {x:208,y:0,t:'b'},{x:208,y:1,t:'b'},{x:209,y:2,t:'b'},
-            {x:215,y:0,t:'p'},
-            {x:222,y:5,t:'b'},{x:223,y:5,t:'b'},{x:224,y:5,t:'b'},
-            {x:230,y:0,t:'s'},{x:231,y:0,t:'s'},{x:232,y:0,t:'s'},
-            {x:240,y:1,t:'b'},{x:241,y:2,t:'b'},{x:242,y:3,t:'b'},
-            {x:250,y:0,t:'o'},{x:250,y:1,t:'b'},
-            {x:260,y:0,t:'s'},{x:261,y:0,t:'s'},
+            // Triple spike
+            {x:101,y:0,t:'s'},{x:102,y:0,t:'s'},{x:103,y:0,t:'s'},
+            
+            // Platform series
+            {x:108,y:1,t:'b'},{x:109,y:1,t:'b'},
+            {x:112,y:2,t:'b'},{x:113,y:2,t:'b'},{x:114,y:2,t:'b'},
+            {x:113,y:3,t:'s'},
+            
+            // More spikes
+            {x:120,y:0,t:'s'},{x:121,y:0,t:'s'},{x:122,y:0,t:'s'},{x:123,y:0,t:'s'},
+            
+            // Ship portal at 30%
+            {x:135,y:0,t:'sp'},
+            
+            // SHIP SECTION (30-60%)
+            // Flying obstacles - blocks in the air
+            {x:145,y:2,t:'b'},{x:146,y:2,t:'b'},{x:147,y:2,t:'b'},
+            {x:145,y:6,t:'b'},{x:146,y:6,t:'b'},{x:147,y:6,t:'b'},
+            
+            {x:155,y:3,t:'b'},{x:156,y:3,t:'b'},
+            {x:155,y:7,t:'b'},{x:156,y:7,t:'b'},
+            
+            {x:163,y:1,t:'b'},{x:164,y:1,t:'b'},{x:165,y:1,t:'b'},
+            {x:163,y:5,t:'b'},{x:164,y:5,t:'b'},{x:165,y:5,t:'b'},
+            {x:163,y:9,t:'b'},{x:164,y:9,t:'b'},{x:165,y:9,t:'b'},
+            
+            {x:173,y:4,t:'b'},{x:174,y:4,t:'b'},{x:175,y:4,t:'b'},{x:176,y:4,t:'b'},
+            
+            {x:183,y:2,t:'b'},{x:184,y:2,t:'b'},
+            {x:183,y:6,t:'b'},{x:184,y:6,t:'b'},
+            {x:183,y:10,t:'b'},{x:184,y:10,t:'b'},
+            
+            {x:192,y:3,t:'b'},{x:193,y:3,t:'b'},{x:194,y:3,t:'b'},
+            {x:192,y:8,t:'b'},{x:193,y:8,t:'b'},{x:194,y:8,t:'b'},
+            
+            {x:202,y:1,t:'b'},{x:203,y:1,t:'b'},{x:204,y:1,t:'b'},{x:205,y:1,t:'b'},
+            {x:202,y:5,t:'b'},{x:203,y:5,t:'b'},{x:204,y:5,t:'b'},{x:205,y:5,t:'b'},
+            {x:202,y:9,t:'b'},{x:203,y:9,t:'b'},{x:204,y:9,t:'b'},{x:205,y:9,t:'b'},
+            
+            // Back to cube portal at 60%
+            {x:220,y:0,t:'cp'},
+            
+            // CUBE SECTION AGAIN (60-100%)
+            {x:228,y:0,t:'s'},{x:229,y:0,t:'s'},
+            
+            // Platform section
+            {x:234,y:0,t:'b'},{x:235,y:0,t:'b'},{x:236,y:0,t:'b'},
+            {x:235,y:1,t:'s'},
+            {x:240,y:0,t:'s'},{x:241,y:0,t:'s'},{x:242,y:0,t:'s'},
+            
+            // Jump section
+            {x:248,y:1,t:'b'},{x:249,y:1,t:'b'},
+            {x:252,y:2,t:'b'},{x:253,y:2,t:'b'},{x:254,y:2,t:'b'},
+            {x:253,y:3,t:'s'},{x:254,y:3,t:'s'},
+            
+            // Pad section
+            {x:260,y:0,t:'p'},
+            {x:266,y:5,t:'b'},{x:267,y:5,t:'b'},{x:268,y:5,t:'b'},
+            
+            // Orb finale
+            {x:274,y:0,t:'b'},{x:275,y:1,t:'b'},
+            {x:275,y:2,t:'o'},
+            {x:280,y:4,t:'b'},{x:281,y:4,t:'b'},{x:282,y:4,t:'b'},
+            
+            // Final spikes before end
+            {x:288,y:0,t:'s'},{x:289,y:0,t:'s'},{x:290,y:0,t:'s'},
+            
+            // Triple spike finish
+            {x:296,y:0,t:'s'},{x:297,y:0,t:'s'},{x:298,y:0,t:'s'},
+            
+            {x:304,y:0,t:'b'},{x:305,y:1,t:'b'},{x:306,y:2,t:'b'},
+            
+            {x:312,y:0,t:'s'},{x:313,y:0,t:'s'},
+            
+            // Final platform
+            {x:320,y:0,t:'b'},{x:321,y:0,t:'b'},{x:322,y:0,t:'b'},{x:323,y:0,t:'b'},
             
             // End portal
-            {x:275,y:0,t:'e'}
+            {x:340,y:0,t:'e'}
         ]
     },
     {
@@ -780,7 +842,7 @@ const Game = {
     resize() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
-        this.floorY = this.canvas.height - 150;
+        this.floorY = this.canvas.height - 100; // Raised floor for more flying space
         this.ceilingY = 50; // Top boundary for ship
     },
     
@@ -1184,8 +1246,13 @@ const Game = {
             // Canvas preview
             const cvs = document.createElement('canvas');
             cvs.width = 60; cvs.height = 60;
+            cvs.style.width = '60px';
+            cvs.style.height = '60px';
             const ctx = cvs.getContext('2d');
-            Renderer.drawPlayer(ctx, 30, 30, 0, skin.id, COLORS[SaveSys.data.currentColor].hex);
+            ctx.save();
+            ctx.scale(0.55, 0.55); // Scale down to fit in 60x60 canvas
+            Renderer.drawPlayer(ctx, 54, 54, 0, skin.id, COLORS[SaveSys.data.currentColor].hex);
+            ctx.restore();
             d.appendChild(cvs);
 
             // Cost overlay
