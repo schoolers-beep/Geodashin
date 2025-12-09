@@ -259,6 +259,11 @@ const CONFIG = {
     SHIP_TERMINAL_UP: 1200,
     SHIP_TERMINAL_DOWN: 1500,
     
+    // Wave Physics
+    WAVE_SPEED: 800, // Diagonal speed
+    WAVE_ANGLE_UP: Math.PI / 4, // 45 degrees
+    WAVE_ANGLE_DOWN: -Math.PI / 4,
+    
     // Hitboxes (Forgiveness factor: Hitbox is smaller than visual)
     HITBOX_SCALE: 0.7,  // Slightly more forgiving
     
@@ -615,8 +620,9 @@ const Renderer = {
     },
     
     drawPortal(ctx, x, y, type) {
-        // type: 'ship' or 'cube'
-        const color = type === 'ship' ? '#ffaa00' : '#00ff00';
+        // type: 'ship', 'cube', or 'wave'
+        const colorMap = { 'ship': '#ffaa00', 'cube': '#00ff00', 'wave': '#ff00ff' };
+        const color = colorMap[type] || '#00ff00';
         
         // Portal frame
         ctx.strokeStyle = color;
@@ -632,7 +638,8 @@ const Renderer = {
         ctx.font = 'bold 30px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const icon = type === 'ship' ? '✈' : '■';
+        const iconMap = { 'ship': '✈', 'cube': '■', 'wave': '~' };
+        const icon = iconMap[type] || '■';
         ctx.fillText(icon, x+32, y+64);
     },
     
@@ -667,6 +674,42 @@ const Renderer = {
         ctx.closePath();
         ctx.fill();
         ctx.shadowBlur = 0;
+    },
+    
+    drawWave(ctx, x, y, colorHex) {
+        const s = 50;
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Wave trail effect
+        ctx.fillStyle = colorHex;
+        ctx.globalAlpha = 0.3;
+        for(let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.arc(-i*15, 0, s/2 - i*5, 0, Math.PI*2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+        
+        // Main wave body
+        ctx.fillStyle = colorHex;
+        ctx.beginPath();
+        ctx.arc(0, 0, s/2, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Border
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // Inner circle pattern
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, s/3, 0, Math.PI*2);
+        ctx.stroke();
+        
+        ctx.restore();
     }
 };
 
@@ -896,6 +939,33 @@ const Game = {
             }
             
             p.grounded = false;
+        } else if(p.mode === 'wave') {
+            // WAVE MODE PHYSICS - Diagonal movement
+            
+            const angle = this.input.hold ? CONFIG.WAVE_ANGLE_UP : CONFIG.WAVE_ANGLE_DOWN;
+            const targetVY = Math.sin(angle) * CONFIG.WAVE_SPEED;
+            
+            // Smooth transition to target velocity
+            p.vy += (targetVY - p.vy) * 10 * dt;
+            
+            // Move
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            
+            // Wave has no rotation, stays at 0
+            p.angle = 0;
+            
+            // Bounds
+            const maxY = (this.canvas.height - this.floorY - 80);
+            if(p.y <= 20) {
+                p.y = 20;
+                p.vy = Math.abs(p.vy); // Bounce off ceiling
+            } else if(p.y >= maxY) {
+                p.y = maxY;
+                p.vy = -Math.abs(p.vy); // Bounce off floor
+            }
+            
+            p.grounded = false;
         }
 
         // Collisions
@@ -935,19 +1005,20 @@ const Game = {
                pRect.t > obj.y + offset && pRect.b < obj.y + obj.h - offset) {
                 
                 if(obj.t === 's') {
-                    // Spike: Death (only in cube mode, or if ship hits spike)
+                    // Spike: Death
                     if(p.mode === 'cube') {
                         // Refined spike hitbox - only bottom 60% is deadly
                         if(pRect.b < obj.y + obj.h * 0.6) this.die();
                     } else {
-                        this.die(); // Ship dies on any spike touch
+                        // Ship/wave dies on spike touch
+                        this.die();
                     }
                 }
                 else if(obj.t === 'b') {
                     if(p.mode === 'cube') {
                         this.resolveBlock(obj, pRect);
                     } else {
-                        // Ship dies on block collision
+                        // Ship and wave die on block collision
                         this.die();
                     }
                 }
@@ -983,6 +1054,14 @@ const Game = {
                     p.y = 0; // Land on ground
                     p.vy = 0;
                     p.grounded = true;
+                    obj.hit = true;
+                    AudioSys.orb();
+                }
+                else if(obj.t === 'wp' && !obj.hit) {
+                    // Wave portal
+                    p.mode = 'wave';
+                    p.y = 200; // Start at mid-height
+                    p.vy = 0;
                     obj.hit = true;
                     AudioSys.orb();
                 }
@@ -1052,8 +1131,12 @@ const Game = {
     winLevel() {
         this.state = 'DEATH'; // Reuse death screen for now
         AudioSys.win();
+        
+        // Victory particles!
+        this.spawnParticles(this.p.x, this.p.y + 50, 50);
+        
         document.getElementById('screen-death').classList.remove('hidden');
-        document.getElementById('death-msg').innerText = "LEVEL COMPLETE!";
+        document.getElementById('death-msg').innerText = "★ LEVEL COMPLETE! ★";
         document.getElementById('death-prog').style.width = "100%";
         
         const oldBest = SaveSys.data.levelProgress[this.currentLevelId] || 0;
@@ -1222,6 +1305,7 @@ const Game = {
                 else if(obj.t === 'p') Renderer.drawPad(ctx, scrX, scrY);
                 else if(obj.t === 'sp') Renderer.drawPortal(ctx, scrX, groundY - 128, 'ship');
                 else if(obj.t === 'cp') Renderer.drawPortal(ctx, scrX, groundY - 128, 'cube');
+                else if(obj.t === 'wp') Renderer.drawPortal(ctx, scrX, groundY - 128, 'wave');
                 else if(obj.t === 'e') Renderer.drawEndPortal(ctx, scrX, groundY - 128);
             }
 
@@ -1254,6 +1338,8 @@ const Game = {
                     Renderer.drawPlayer(ctx, scrX, scrY, -this.p.angle, SaveSys.data.currentSkin, COLORS[SaveSys.data.currentColor].hex);
                 } else if(this.p.mode === 'ship') {
                     Renderer.drawShip(ctx, scrX, scrY, -this.p.angle, COLORS[SaveSys.data.currentColor].hex);
+                } else if(this.p.mode === 'wave') {
+                    Renderer.drawWave(ctx, scrX, scrY, COLORS[SaveSys.data.currentColor].hex);
                 }
             }
         }
